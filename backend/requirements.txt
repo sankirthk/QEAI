@@ -6,3 +6,8 @@ opencv-python
 supervision
 numpy
 onnxruntime-qnn
+transformers==4.44.2
+tokenizers==0.19.1
+accelerate==0.33.0
+Pillow
+torch-directml

@@ -1,155 +1,200 @@
-import cv2
-import numpy as np
-from fastapi import APIRouter, File, UploadFile, Form
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
+import cv2, numpy as np, json
+from collections import deque
 
 from app.models.detector import Detector
-from app.models.vlm import VLM
 from app.models.task_manager import TaskManager
+from app.models.vlm2 import plan
 
 router = APIRouter()
 
-# Initialize pipeline components
 detector = Detector(weights="app/ml/best.onnx", imgsz=640)
-vlm = VLM()
 task_manager = TaskManager()
 
+_detection_buffer = deque(maxlen=3)
 
-def _ensure_plan_from_state(detections):
-    """
-    If we already have a user query but still don't have a plan,
-    and detections are now available, build the plan lazily.
-    """
-    if task_manager.query and (not task_manager.plan) and detections:
-        plan = vlm.plan(detections, instruction=task_manager.query)
-        task_manager.set_plan(task_manager.query, plan)
+def _labels_for_vlm(detections):
+    out = []
+    for d in detections:
+        lbl = str(d.get("label", "")).strip().lower()
+        if lbl:
+            out.append({"label": lbl})
+    return out
 
+def _ensure_plan_from_state(detections, frame_np=None):
+    if not task_manager.query or task_manager.plan:
+        return
+    vlm_buttons = _labels_for_vlm(detections)
+    vlm_response = plan(task_manager.query, vlm_buttons, image_bgr=frame_np)
 
-@router.post("/stream")
-async def stream(
-    frame: UploadFile = File(...),
-    instruction: str = Form(None)  # optional, only provided once at start
-):
-    # Decode uploaded frame
-    contents = await frame.read()
-    nparr = np.frombuffer(contents, np.uint8)
-    frame_np = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-
-    # Debug input frame (optional)
-    cv2.imwrite("debug_input.jpg", frame_np)
-
-    # Step 1: Run ONNX detection
-    detections = detector.detect(frame_np)
-
-    # Debug annotated output (optional)
-    annotated = frame_np.copy()
-    for det in detections:
-        x1, y1, x2, y2 = det["bbox"]
-        label = det["label"]
-        conf = det["confidence"]
-        cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 255, 0), 2)
-        cv2.putText(
-            annotated,
-            f"{label} {conf:.2f}",
-            (x1, y1 - 10),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.6,
-            (0, 255, 0),
-            2,
-        )
-    cv2.imwrite("debug_output.jpg", annotated)
-
-    # Step 2: Always remember the user's initial instruction (query),
-    # even if there are no detections yet. This lets us recover later.
-    if instruction:
-        # Store the query so we can lazily create a plan once detections appear
-        task_manager.query = instruction
-        # If detections already exist right now and we don't have a plan yet, create it
-        _ensure_plan_from_state(detections)
-
-    # If we didn't get an instruction this frame but we HAVE a stored query
-    # and no plan yet, try to build the plan now that we might have detections.
-    if (not instruction) and task_manager.query and (not task_manager.plan) and detections:
-        _ensure_plan_from_state(detections)
-
-    # If still no detections, report and do NOT advance anything.
-    if not detections:
-        # longInstruction depends on whether we have an active task
-        if task_manager.plan:
-            long_instruction = "⚠️ No buttons detected. Please adjust the camera."
-        elif task_manager.query:
-            long_instruction = "⚠️ Looking for controls… please aim the camera at the panel."
-        else:
-            long_instruction = "⚠️ No buttons detected. Please enter a task and aim the camera."
-
-        return JSONResponse({
-            "status": "no objects",
-            "overlay": [],
-            "stepIndex": task_manager.current_step,
-            "totalSteps": task_manager.total_steps,
-            "longInstruction": long_instruction,
+    steps_out = []
+    for i, step in enumerate(vlm_response.get("steps", [])):
+        steps_out.append({
+            "index": i,
+            "title": step.get("title", f"Step {i+1}"),
+            "instruction": step.get("instruction", step.get("title", f"Step {i+1}")),
+            "target_label": str(step.get("target_label", "")).strip().lower(),
         })
 
-    # Step 3: Use (possibly newly created) plan to get current step
+    if steps_out:
+        task_manager.set_plan(task_manager.query, steps_out)
+
+from fastapi import WebSocket, WebSocketDisconnect
+
+@router.websocket("/ws")
+async def ws_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    try:
+        while True:
+            try:
+                message = await websocket.receive()
+            except WebSocketDisconnect:
+                print("WS disconnected")
+                break
+            except RuntimeError:
+                # Client disconnected while waiting
+                print("WS runtime disconnect")
+                break
+
+            # --- TEXT message (instruction)
+            if "text" in message:
+                try:
+                    data = json.loads(message["text"])
+                except Exception:
+                    continue
+                if data.get("type") == "instruction":
+                    task_manager.query = data.get("task", "")
+                    await websocket.send_text(
+                        json.dumps({"status": "instruction_received"})
+                    )
+
+            # --- BINARY message (frame)
+            elif "bytes" in message:
+                frame_bytes = message["bytes"]
+                nparr = np.frombuffer(frame_bytes, np.uint8)
+                frame_np = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                detections = detector.detect(frame_np)
+
+                # track detection buffer
+                _detection_buffer.append(len(detections) >= 10)
+                if len(_detection_buffer) > 3:
+                    _detection_buffer.pop(0)
+
+                # if ready → generate plan
+                if (
+                    task_manager.query
+                    and not task_manager.plan
+                    and len(_detection_buffer) == 3
+                    and all(_detection_buffer)
+                ):
+                    _ensure_plan_from_state(detections, frame_np)
+
+                # no detections
+                if not detections:
+                    if task_manager.plan:
+                        long_instruction = "⚠️ No buttons detected. Please adjust the camera."
+                    elif task_manager.query:
+                        long_instruction = "⚠️ Looking for controls… please aim the camera at the panel."
+                    else:
+                        long_instruction = "⚠️ No buttons detected. Please enter a task and aim the camera."
+                    await websocket.send_text(json.dumps({
+                        "status": "no objects",
+                        "overlay": [],
+                        "stepIndex": task_manager.current_step,
+                        "totalSteps": task_manager.total_steps,
+                        "longInstruction": long_instruction,
+                    }))
+                    continue
+
+                # still waiting for plan
+                if task_manager.query and not task_manager.plan:
+                    await websocket.send_text(json.dumps({
+                        "status": "waiting",
+                        "overlay": [],
+                        "stepIndex": 0,
+                        "totalSteps": 0,
+                        "longInstruction": "Align camera to show at least 10 buttons clearly.",
+                    }))
+                    continue
+
+                # normal flow
+                current_step = task_manager.get_current_instruction()
+                if not current_step:
+                    await websocket.send_text(json.dumps({
+                        "status": "no active task",
+                        "overlay": [],
+                        "stepIndex": task_manager.current_step,
+                        "totalSteps": task_manager.total_steps,
+                        "longInstruction": "Enter a task to begin, then point the camera at the controls."
+                    }))
+                    continue
+
+                target = current_step["target_label"]
+                matches = [d for d in detections if str(d["label"]).strip().lower() == target]
+                best_det = max(matches, key=lambda d: d["confidence"], default=None)
+
+                overlay = []
+                if best_det:
+                    overlay.append({
+                        "bbox": best_det["bbox"],
+                        "label": best_det["label"],
+                        "confidence": best_det["confidence"],
+                        "instruction": current_step["title"],
+                    })
+
+                long_instruction = current_step.get("instruction", f"Next: {current_step['title']}")
+
+                await websocket.send_text(json.dumps({
+                    "status": "ok",
+                    "overlay": overlay,
+                    "stepIndex": task_manager.current_step,
+                    "totalSteps": task_manager.total_steps,
+                    "longInstruction": long_instruction,
+                }))
+
+    except Exception as e:
+        print(f"WS error: {e}")
+    finally:
+        await websocket.close()
+
+
+
+
+@router.post("/step_complete")
+async def step_complete():
+    # If no plan or already complete
+    if not task_manager.plan or task_manager.current_step >= task_manager.total_steps:
+        task_manager.reset()
+        return JSONResponse({
+            "status": "done",
+            "overlay": [],
+            "stepIndex": 0,
+            "totalSteps": 0,
+            "longInstruction": "✅ Task complete!"
+        })
+
+    # Try to advance
+    advanced = task_manager.complete_step()
     current_step = task_manager.get_current_instruction()
-    if not current_step:
-        # No active task yet (no plan created). Tell frontend to keep streaming.
+
+    if not advanced or not current_step:
+        # Completed the last step
+        task_manager.reset()
         return JSONResponse({
-            "status": "no active task",
+            "status": "done",
             "overlay": [],
-            "stepIndex": task_manager.current_step,
-            "totalSteps": task_manager.total_steps,
-            "longInstruction": "Enter a task to begin, then point the camera at the controls."
+            "stepIndex": 0,
+            "totalSteps": 0,
+            "longInstruction": "✅ Task complete!"
         })
 
-    # Step 4: Match bbox with current active button label → overlay
-    overlay = []
-    for det in detections:
-        if det["label"] == current_step["button_label"]:
-            overlay.append({
-                "bbox": det["bbox"],
-                "label": det["label"],
-                "confidence": det["confidence"],
-                "instruction": current_step["step"],  # short instruction for overlay
-            })
-
-    # Long instruction (fallback to step if "long_step" not provided)
-    long_instruction = current_step.get("long_step", f"Next: {current_step['step']}")
-
-    # Debug
-    print("[/stream] json output",
-          {"overlay": overlay, "stepIndex": task_manager.current_step, "totalSteps": task_manager.total_steps})
+    # Normal case → return the new current step
+    overlay = [{"instruction": current_step["title"]}]
 
     return JSONResponse({
         "overlay": overlay,
         "stepIndex": task_manager.current_step,
         "totalSteps": task_manager.total_steps,
-        "longInstruction": long_instruction,
-    })
-
-
-@router.post("/step_complete")
-async def step_complete():
-    advanced = task_manager.complete_step()
-    current_step = task_manager.get_current_instruction()
-
-    if not advanced or current_step is None:
-        # Last step completed → send a single final message
-        return JSONResponse({
-            "status": "done",
-            "overlay": [],
-            "stepIndex": task_manager.current_step,
-            "totalSteps": task_manager.total_steps,
-            "longInstruction": "✅ Task complete! That was the last step."
-        })
-
-    # Otherwise, return the next step
-    return JSONResponse({
-        "overlay": [{
-            "instruction": current_step["step"],
-            "label": current_step.get("button_label"),
-        }],
-        "stepIndex": task_manager.current_step,
-        "totalSteps": task_manager.total_steps,
-        "longInstruction": current_step.get("long_step", f"Next: {current_step['step']}")
+        "longInstruction": current_step.get("instruction", current_step["title"])
     })

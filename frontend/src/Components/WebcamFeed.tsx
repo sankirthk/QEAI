@@ -3,8 +3,9 @@ import Webcam from "react-webcam";
 import axios from "axios";
 import WebcamOverlay from "./WebcamOverlay";
 import "../Styles/TaskInput.css";
+import InstantPotHUD from "./InstantPotHUD";
 
-const STREAM_INTERVAL_MS = 1000; // ~2 fps
+const STREAM_INTERVAL_MS = 1000; // ~1 fps
 const videoConstraints = { facingMode: "environment" };
 const BACKEND_URL = "https://192.168.137.1:8000";
 
@@ -20,88 +21,91 @@ interface WebcamFeedProps {
   onStop: () => void;
 }
 
-const isNum = (v: any): v is number => typeof v === "number" && !Number.isNaN(v);
+const isNum = (v: any): v is number =>
+  typeof v === "number" && !Number.isNaN(v);
 
 const WebcamFeed: React.FC<WebcamFeedProps> = ({ task, onStop }) => {
   const [streaming, setStreaming] = useState(true);
-  const [instructionSent, setInstructionSent] = useState(false);
   const [overlays, setOverlays] = useState<OverlayData[]>([]);
   const [currentStep, setCurrentStep] = useState(0);
   const [totalSteps, setTotalSteps] = useState(0);
   const [longInstruction, setLongInstruction] = useState(""); // wordier text
   const [taskComplete, setTaskComplete] = useState(false);
+  const [hasBBox, setHasBBox] = useState(false);
   const webcamRef = useRef<Webcam>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Continuous streaming loop
+  // Setup WebSocket connection
   useEffect(() => {
-    if (!streaming || !webcamRef.current) return;
+    if (!streaming) return;
 
-    const interval = setInterval(async () => {
-      const imageSrc = webcamRef.current?.getScreenshot();
-      if (!imageSrc) return;
+    const wsUrl = BACKEND_URL.replace("https", "wss") + "/api/ws";
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
 
-      try {
+    ws.onopen = () => {
+      console.log("WS connected");
+      ws.send(JSON.stringify({ type: "instruction", task }));
+      // Start streaming loop once connected
+      intervalRef.current = setInterval(async () => {
+        if (!webcamRef.current || ws.readyState !== WebSocket.OPEN) return;
+        const imageSrc = webcamRef.current.getScreenshot();
+        if (!imageSrc) return;
         const blob = await (await fetch(imageSrc)).blob();
-        const formData = new FormData();
-        formData.append("frame", blob, "frame.jpg");
+        ws.send(blob);
+      }, STREAM_INTERVAL_MS);
+    };
 
-        // Send task only once at the start
-        if (task && !instructionSent) {
-          formData.append("instruction", task);
-          setInstructionSent(true);
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        const {
+          overlay,
+          stepIndex,
+          totalSteps: ts,
+          longInstruction: li,
+          status,
+        } = data;
+
+        if (status === "no objects") {
+          setOverlays([]);
+          setHasBBox(false);
+          setLongInstruction("⚠️ No buttons detected. Please adjust the camera.");
+          setTaskComplete(false);
+          return;
         }
 
-        const res = await axios.post(`${BACKEND_URL}/api/stream`, formData, {
-          headers: { "Content-Type": "multipart/form-data" },
-        });
+        if (Array.isArray(overlay)) {
+          setOverlays(overlay);
+          if (overlay.length > 0) setHasBBox(true);
+        }
 
-        if (res.data) {
-          const {
-            overlay,
-            stepIndex,
-            totalSteps: ts,
-            longInstruction: li,
-            status,
-          } = res.data;
+        if (isNum(stepIndex)) setCurrentStep(stepIndex);
+        if (isNum(ts)) setTotalSteps(ts);
+        if (typeof li === "string") setLongInstruction(li);
 
-          // ⚠️ Handle "no objects": keep streaming, just show warning
-          if (status === "no objects") {
-            setOverlays([]);
-            setLongInstruction("⚠️ No buttons detected. Please adjust the camera.");
-            setTaskComplete(false);
-            return;
-          }
-
-          // Normal update path
-          setOverlays(Array.isArray(overlay) ? overlay : []);
-
-          if (isNum(stepIndex)) setCurrentStep(stepIndex);
-          if (isNum(ts)) setTotalSteps(ts);
-          if (typeof li === "string") setLongInstruction(li);
-
-          // Completed explicitly by backend
-          if (status === "done") {
-            setStreaming(false);
-            setTaskComplete(true);
-            return;
-          }
-
-          // Completed implicitly by indices (guard against ts = 0)
-          if (isNum(stepIndex) && isNum(ts) && ts > 0 && stepIndex >= ts) {
-            setStreaming(false);
-            setTaskComplete(true);
-            return;
-          }
+        if (status === "done") {
+          setStreaming(false);
+          setTaskComplete(true);
         }
       } catch (err) {
-        console.error("Streaming error:", err);
+        console.error("WS parse error:", err);
       }
-    }, STREAM_INTERVAL_MS);
+    };
 
-    return () => clearInterval(interval);
-  }, [streaming, task, instructionSent]);
+    ws.onclose = () => {
+      console.log("WS disconnected");
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
 
-  // Done → advance step
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      ws.close();
+    };
+  }, [streaming, task]);
+
+  // Step complete (HTTP POST)
   const handleDone = async () => {
     try {
       const res = await axios.post(`${BACKEND_URL}/api/step_complete`);
@@ -116,12 +120,14 @@ const WebcamFeed: React.FC<WebcamFeedProps> = ({ task, onStop }) => {
 
         if (status === "no objects") {
           setOverlays([]);
+          setHasBBox(false);
           setLongInstruction("⚠️ No buttons detected. Please adjust the camera.");
           setTaskComplete(false);
-          // keep streaming → don't return
         } else {
-          setOverlays(Array.isArray(overlay) ? overlay : []);
-
+          if (Array.isArray(overlay)) {
+            setOverlays(overlay);
+            if (overlay.length > 0) setHasBBox(true);
+          }
           if (isNum(stepIndex)) setCurrentStep(stepIndex);
           if (isNum(ts)) setTotalSteps(ts);
           if (typeof li === "string") setLongInstruction(li);
@@ -129,13 +135,6 @@ const WebcamFeed: React.FC<WebcamFeedProps> = ({ task, onStop }) => {
           if (status === "done") {
             setStreaming(false);
             setTaskComplete(true);
-            return;
-          }
-
-          if (isNum(stepIndex) && isNum(ts) && ts > 0 && stepIndex >= ts) {
-            setStreaming(false);
-            setTaskComplete(true);
-            return;
           }
         }
       }
@@ -150,9 +149,11 @@ const WebcamFeed: React.FC<WebcamFeedProps> = ({ task, onStop }) => {
     setOverlays([]);
     setCurrentStep(0);
     setTotalSteps(0);
-    setInstructionSent(false);
     setLongInstruction("");
     setTaskComplete(false);
+    setHasBBox(false);
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    if (wsRef.current) wsRef.current.close();
     onStop();
   };
 
@@ -200,6 +201,7 @@ const WebcamFeed: React.FC<WebcamFeedProps> = ({ task, onStop }) => {
               };
             })}
           />
+          <InstantPotHUD locked={hasBBox} />
         </div>
       </div>
 
@@ -208,7 +210,6 @@ const WebcamFeed: React.FC<WebcamFeedProps> = ({ task, onStop }) => {
           Stop Task
         </button>
 
-        {/* Done only if steps remain and not complete */}
         {!taskComplete && currentStep < totalSteps && (
           <button
             className="glow-button"
@@ -219,7 +220,6 @@ const WebcamFeed: React.FC<WebcamFeedProps> = ({ task, onStop }) => {
           </button>
         )}
 
-        {/* Long instruction text (warning in orange if starts with ⚠️) */}
         {longInstruction && !taskComplete && (
           <p
             style={{
@@ -234,7 +234,6 @@ const WebcamFeed: React.FC<WebcamFeedProps> = ({ task, onStop }) => {
           </p>
         )}
 
-        {/* Final message */}
         {taskComplete && (
           <p
             style={{

@@ -8,10 +8,17 @@ from app.routers import pipeline
 
 app = FastAPI()
 
+origins = [
+    "http://localhost:3000",
+    "http://192.168.137.1:3000",
+    "https://192.168.137.1:3000",
+    # add your phone's origin if needed
+]
+
 # --- Middleware ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

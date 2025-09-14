@@ -1,0 +1,48 @@
+.neon-box {
+  position: absolute;
+  border: 2px solid;
+  border-radius: 6px;
+  pointer-events: none;
+  transition: all 0.15s ease-out;
+}
+
+.neon-label {
+  position: absolute;
+  top: -1.8rem;
+  left: 0;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.6);
+  font-family: "Electrolize", sans-serif;
+  font-size: 0.9rem;
+  font-weight: bold;
+}
+
+/* Colors */
+.color-0 {
+  border-color: rgb(0, 255, 255);
+  box-shadow: 0 0 15px rgba(0, 255, 255, 0.9), 0 0 30px rgba(0, 255, 255, 0.6);
+  color: rgb(0, 255, 255);
+  text-shadow: 0 0 8px rgba(0, 255, 255, 1), 0 0 16px rgba(0, 255, 255, 0.8);
+}
+
+.color-1 {
+  border-color: rgb(255, 0, 255);
+  box-shadow: 0 0 15px rgba(255, 0, 255, 0.9), 0 0 30px rgba(255, 0, 255, 0.6);
+  color: rgb(255, 0, 255);
+  text-shadow: 0 0 8px rgba(255, 0, 255, 1), 0 0 16px rgba(255, 0, 255, 0.8);
+}
+
+.color-2 {
+  border-color: rgb(0, 255, 128);
+  box-shadow: 0 0 15px rgba(0, 255, 128, 0.9), 0 0 30px rgba(0, 255, 128, 0.6);
+  color: rgb(0, 255, 128);
+  text-shadow: 0 0 8px rgba(0, 255, 128, 1), 0 0 16px rgba(0, 255, 128, 0.8);
+}
+
+.color-3 {
+  border-color: rgb(255, 255, 0);
+  box-shadow: 0 0 15px rgba(255, 255, 0, 0.9), 0 0 30px rgba(255, 255, 0, 0.6);
+  color: rgb(255, 255, 0);
+  text-shadow: 0 0 8px rgba(255, 255, 0, 1), 0 0 16px rgba(255, 255, 0, 0.8);
+}

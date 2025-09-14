@@ -3,7 +3,7 @@ import TextType from "../Components/UI/TextType";
 import { useNavigate } from "react-router-dom";
 import "../Styles/LandingPage.css";
 
-const LazyLaserFlow = React.lazy(() => import("../Components/UI/LaserFlow"));
+export const LazyLaserFlow = React.lazy(() => import("../Components/UI/LaserFlow"));
 
 const LandingPage: React.FC = () => {
   const navigate = useNavigate();
@@ -12,9 +12,9 @@ const LandingPage: React.FC = () => {
     <div className="landing__page-container">
       {/* Background */}
       <div className="landing__page-background">
-        {/* <Suspense fallback={null}>
+        <Suspense fallback={null}>
           <LazyLaserFlow />
-        </Suspense> */}
+        </Suspense>
       </div>
 
       {/* Foreground content */}

@@ -1,17 +1,96 @@
-.ar__page-container {
+/* Page container */
+.assistant-page {
+  position: relative;
+  min-height: 100vh;
+  overflow: hidden;
   background-color: black;
-  height: 100vh; /* full screen */
-  width: 100%; /* full width */
 }
 
+/* LaserFlow background */
+.assistant-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+/* Glass overlay layer */
+.assistant-glass {
+  position: relative;
+  z-index: 1;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start; /* Start from top, not vertical center */
+  padding-top: 80px; /* Breathing room below top */
+  padding-bottom: 40px;
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  background: rgba(0, 0, 0, 0.35); /* transparent dark tint */
+  box-sizing: border-box;
+}
+
+/* Home icon */
 .ar__page-home {
-  position: fixed;
-  left: 2.5rem;
-  top: 2rem;
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  cursor: pointer;
+  color: white;
+  opacity: 0.85;
+  transition: opacity 0.3s;
+}
+.ar__page-home:hover {
+  opacity: 1;
 }
 
-svg {
+/* Hero section */
+.assistant-hero {
+  text-align: center;
+  margin-bottom: 2rem;
+  padding: 0 1rem;
+}
+
+.assistant-hero h1 {
+  font-size: 2.2rem;
+  font-weight: bold;
   color: white;
-  width: 2.5rem;
-  height: 2.5rem;
+  text-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
+  margin-bottom: 0.5rem;
+}
+
+.assistant-hero p {
+  font-size: 1.1rem;
+  color: rgba(255, 255, 255, 0.85);
+  max-width: 600px;
+  margin: 0 auto;
+  line-height: 1.5;
+}
+
+/* Content wrapper (TaskInput / WebcamFeed) */
+.assistant-content {
+  max-width: 900px;
+  width: 100%; /* Full width inside container */
+  flex: 1; /* Allow vertical growth */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 2rem;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  text-align: center;
+  color: white;
+  margin-bottom: 2rem;
+  box-sizing: border-box;
+}
+
+/* Footer tip */
+.assistant-footer {
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.7);
+  text-align: center;
+  margin-top: auto;
+  padding: 1rem;
 }
