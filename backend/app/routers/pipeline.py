@@ -5,7 +5,7 @@ from collections import deque
 
 from app.models.detector import Detector
 from app.models.task_manager import TaskManager
-from app.models.vlm2 import plan
+from app.models.vlm import plan
 
 router = APIRouter()
 
@@ -14,7 +14,11 @@ task_manager = TaskManager()
 
 _detection_buffer = deque(maxlen=3)
 
+
+# --- Helpers -----------------------------------------------------
+
 def _labels_for_vlm(detections):
+    """Extract button labels for LLM planning"""
     out = []
     for d in detections:
         lbl = str(d.get("label", "")).strip().lower()
@@ -22,25 +26,28 @@ def _labels_for_vlm(detections):
             out.append({"label": lbl})
     return out
 
-def _ensure_plan_from_state(detections, frame_np=None):
+
+def _ensure_plan_from_state(detections):
+    """If we have a query but no plan, call the VLM/LLM to generate one"""
     if not task_manager.query or task_manager.plan:
         return
     vlm_buttons = _labels_for_vlm(detections)
-    vlm_response = plan(task_manager.query, vlm_buttons, image_bgr=frame_np)
+    vlm_response = plan(task_manager.query, vlm_buttons)
 
     steps_out = []
     for i, step in enumerate(vlm_response.get("steps", [])):
         steps_out.append({
             "index": i,
-            "title": step.get("title", f"Step {i+1}"),
-            "instruction": step.get("instruction", step.get("title", f"Step {i+1}")),
+            "title": step.get("title", f"Step {i+1}"),           # short
+            "instruction": step.get("instruction", f"Step {i+1}"), # long
             "target_label": str(step.get("target_label", "")).strip().lower(),
         })
 
     if steps_out:
         task_manager.set_plan(task_manager.query, steps_out)
 
-from fastapi import WebSocket, WebSocketDisconnect
+
+# --- WebSocket ---------------------------------------------------
 
 @router.websocket("/ws")
 async def ws_endpoint(websocket: WebSocket):
@@ -53,11 +60,10 @@ async def ws_endpoint(websocket: WebSocket):
                 print("WS disconnected")
                 break
             except RuntimeError:
-                # Client disconnected while waiting
                 print("WS runtime disconnect")
                 break
 
-            # --- TEXT message (instruction)
+            # --- TEXT message (instruction from frontend) ---
             if "text" in message:
                 try:
                     data = json.loads(message["text"])
@@ -69,7 +75,7 @@ async def ws_endpoint(websocket: WebSocket):
                         json.dumps({"status": "instruction_received"})
                     )
 
-            # --- BINARY message (frame)
+            # --- BINARY message (frame from webcam) ---
             elif "bytes" in message:
                 frame_bytes = message["bytes"]
                 nparr = np.frombuffer(frame_bytes, np.uint8)
@@ -81,33 +87,33 @@ async def ws_endpoint(websocket: WebSocket):
                 if len(_detection_buffer) > 3:
                     _detection_buffer.pop(0)
 
-                # if ready → generate plan
+                # generate plan if ready
                 if (
                     task_manager.query
                     and not task_manager.plan
                     and len(_detection_buffer) == 3
                     and all(_detection_buffer)
                 ):
-                    _ensure_plan_from_state(detections, frame_np)
+                    _ensure_plan_from_state(detections)
 
                 # no detections
                 if not detections:
                     if task_manager.plan:
-                        long_instruction = "⚠️ No buttons detected. Please adjust the camera."
+                        li = "⚠️ No buttons detected. Please adjust the camera."
                     elif task_manager.query:
-                        long_instruction = "⚠️ Looking for controls… please aim the camera at the panel."
+                        li = "⚠️ Looking for controls… please aim the camera at the panel."
                     else:
-                        long_instruction = "⚠️ No buttons detected. Please enter a task and aim the camera."
+                        li = "⚠️ No buttons detected. Please enter a task and aim the camera."
                     await websocket.send_text(json.dumps({
                         "status": "no objects",
                         "overlay": [],
                         "stepIndex": task_manager.current_step,
                         "totalSteps": task_manager.total_steps,
-                        "longInstruction": long_instruction,
+                        "longInstruction": li,
                     }))
                     continue
 
-                # still waiting for plan
+                # waiting for plan
                 if task_manager.query and not task_manager.plan:
                     await websocket.send_text(json.dumps({
                         "status": "waiting",
@@ -140,26 +146,29 @@ async def ws_endpoint(websocket: WebSocket):
                         "bbox": best_det["bbox"],
                         "label": best_det["label"],
                         "confidence": best_det["confidence"],
-                        "instruction": current_step["title"],
+                        "instruction": current_step["title"],   # short for overlay
                     })
 
                 long_instruction = current_step.get("instruction", f"Next: {current_step['title']}")
-
                 await websocket.send_text(json.dumps({
                     "status": "ok",
                     "overlay": overlay,
                     "stepIndex": task_manager.current_step,
                     "totalSteps": task_manager.total_steps,
-                    "longInstruction": long_instruction,
+                    "longInstruction": long_instruction,       # long for UI paragraph
                 }))
 
     except Exception as e:
         print(f"WS error: {e}")
     finally:
-        await websocket.close()
+        try:
+            if not websocket.client_state.DISCONNECTED:
+                await websocket.close()
+        except Exception as close_error:
+            print(f"Error closing websocket: {close_error}")
 
 
-
+# --- Step complete -----------------------------------------------
 
 @router.post("/step_complete")
 async def step_complete():
@@ -174,12 +183,11 @@ async def step_complete():
             "longInstruction": "✅ Task complete!"
         })
 
-    # Try to advance
+    # Advance step
     advanced = task_manager.complete_step()
     current_step = task_manager.get_current_instruction()
 
     if not advanced or not current_step:
-        # Completed the last step
         task_manager.reset()
         return JSONResponse({
             "status": "done",
@@ -189,12 +197,18 @@ async def step_complete():
             "longInstruction": "✅ Task complete!"
         })
 
-    # Normal case → return the new current step
-    overlay = [{"instruction": current_step["title"]}]
+    # Overlay still shows short title
+    overlay = [{
+        "bbox": None,  # we don’t have fresh detections here
+        "label": current_step["target_label"],
+        "confidence": None,
+        "instruction": current_step["title"],   # short for box
+    }]
 
     return JSONResponse({
+        "status": "ok",
         "overlay": overlay,
         "stepIndex": task_manager.current_step,
         "totalSteps": task_manager.total_steps,
-        "longInstruction": current_step.get("instruction", current_step["title"])
+        "longInstruction": current_step.get("instruction", current_step["title"]) # long for paragraph
     })

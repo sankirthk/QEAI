@@ -57,7 +57,7 @@
 }
 
 .landing__page-about-section h2 {
-  font-size: 3rem;
+  font-size: 2rem;
   margin-bottom: 2rem;
   text-transform: uppercase;
   letter-spacing: 2px;
@@ -99,5 +99,5 @@
 }
 
 .landing__page-cta-section h2 {
-  font-size: 3rem;
+  font-size: 2rem;
 }
