@@ -1,0 +1,44 @@
+.ti__component-container {
+  display: flex;
+  flex-direction: column;
+  justify-content: center; /* vertically center children */
+  align-items: center; /* horizontally center children */
+  min-height: 90vh;
+}
+
+.ti__component-controls {
+  display: flex;
+  flex-direction: column; /* stack input + button */
+  justify-content: center;
+  align-items: center;
+  gap: 1rem;
+  width: 100%;
+  margin-top: 2rem;
+}
+.ti__component-controls-textbox {
+  flex: 1.5;
+  padding: 1rem 2rem;
+  margin-left: 1rem;
+  width: 80%;
+  border-radius: 1.35rem;
+  font-size: 1.5rem;
+  font-family: "Orbitron", sans-serif;
+  border: 1px;
+  font-weight: 500;
+}
+
+.ti__component-instructions {
+  position: absolute;
+  top: -1.5rem;
+  left: 0;
+  background: red;
+  color: white;
+  padding: 2px 4px;
+  font-size: 0.8rem;
+}
+
+.ti__component-webcam {
+  width: 100%;
+  max-width: 900px;
+  position: relative; /* stays in flow */
+}

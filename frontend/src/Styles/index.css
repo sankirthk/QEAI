@@ -1,0 +1,91 @@
+*,
+::before,
+::after {
+  padding: 0;
+  box-sizing: border-box;
+  margin: 0;
+}
+
+body {
+  font-family: "Montserrat", sans-serif;
+  font-optical-sizing: auto;
+  font-style: normal;
+}
+
+.glow-button {
+  font-family: "Montserrat", sans-serif;
+  font-weight: 700;
+  position: relative;
+  padding: 1rem 2rem;
+  border: 2px solid transparent;
+  background-color: rgba(0, 0, 0, 0.2);
+  color: #fff;
+  font-size: 1rem;
+  border-radius: 0.5rem;
+  z-index: 0;
+  cursor: pointer;
+  overflow: hidden;
+  margin-top: 1rem;
+}
+
+/* Flowing glowing border */
+.glow-button::before {
+  content: "";
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  right: -2px;
+  bottom: -2px;
+  background: linear-gradient(
+    120deg,
+    #cf9eff,
+    #6edcff,
+    #ff9a8b,
+    #a8ff60,
+    #cf9eff
+  );
+  background-size: 300% 300%;
+  animation: flowGlow 4s linear infinite;
+  z-index: -1;
+  border-radius: 10px;
+  filter: blur(4px);
+}
+/* Button inner background to hide inner glow */
+.glow-button::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  right: 2px;
+  bottom: 2px;
+  background-color: #111111;
+  z-index: -1;
+  border-radius: 6px;
+}
+
+@keyframes flowGlow {
+  0% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: 300% 50%;
+  }
+}
+
+h2 {
+  font-weight: 700;
+  font-size: 4rem;
+  margin-bottom: 1rem;
+  color: white;
+}
+
+h3 {
+  font-size: 1.5rem;
+}
+
+ul {
+  font-size: 1.5rem;
+  background-color: #0000002d;
+  text-align: justify;
+  line-height: 2;
+}

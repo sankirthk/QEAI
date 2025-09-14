@@ -1,0 +1,17 @@
+.ar__page-container {
+  background-color: black;
+  height: 100vh; /* full screen */
+  width: 100%; /* full width */
+}
+
+.ar__page-home {
+  position: fixed;
+  left: 2.5rem;
+  top: 2rem;
+}
+
+svg {
+  color: white;
+  width: 2.5rem;
+  height: 2.5rem;
+}
