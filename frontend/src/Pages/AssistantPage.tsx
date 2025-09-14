@@ -1,14 +1,13 @@
-import React from "react";
+import React, { useState } from "react";
 import TaskInput from "../Components/TaskInput";
 import WebcamFeed from "../Components/WebcamFeed";
-import { useAssistantStore } from "../Store/assistantStore";
 import "../Styles/AssistantPage.css";
 import { House } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 const AssistantPage: React.FC = () => {
   const navigate = useNavigate();
-  const task = useAssistantStore((s) => s.task);
+  const [task, setTask] = useState<string>("");
 
   return (
     <>
@@ -16,7 +15,11 @@ const AssistantPage: React.FC = () => {
         <House onClick={() => navigate("/")} />
       </div>
       <div className="ar__page-container">
-        {!task ? <TaskInput /> : <WebcamFeed />}
+        {!task ? (
+          <TaskInput onStart={(t) => setTask(t)} />
+        ) : (
+          <WebcamFeed task={task} onStop={() => setTask("")} />
+        )}
       </div>
     </>
   );

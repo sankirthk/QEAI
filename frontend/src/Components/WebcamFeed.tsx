@@ -6,22 +6,30 @@ import "../Styles/TaskInput.css";
 
 const STREAM_INTERVAL_MS = 1000; // ~2 fps
 const videoConstraints = { facingMode: "environment" };
-const BACKEND_URL = "https://192.168.1.230:8000";
+const BACKEND_URL = "https://192.168.137.1:8000";
 
 interface OverlayData {
-  bbox: [number, number, number, number]; // [x1, y1, x2, y2]
+  bbox?: [number, number, number, number];
   label?: string;
   confidence?: number;
-  instruction?: string;
+  instruction?: string; // short overlay instruction
 }
 
-const WebcamFeed: React.FC = () => {
+interface WebcamFeedProps {
+  task: string;
+  onStop: () => void;
+}
+
+const isNum = (v: any): v is number => typeof v === "number" && !Number.isNaN(v);
+
+const WebcamFeed: React.FC<WebcamFeedProps> = ({ task, onStop }) => {
   const [streaming, setStreaming] = useState(true);
   const [instructionSent, setInstructionSent] = useState(false);
   const [overlays, setOverlays] = useState<OverlayData[]>([]);
   const [currentStep, setCurrentStep] = useState(0);
   const [totalSteps, setTotalSteps] = useState(0);
-  const [task, setTask] = useState(""); // optional: can come from props
+  const [longInstruction, setLongInstruction] = useState(""); // wordier text
+  const [taskComplete, setTaskComplete] = useState(false);
   const webcamRef = useRef<Webcam>(null);
 
   // Continuous streaming loop
@@ -37,7 +45,7 @@ const WebcamFeed: React.FC = () => {
         const formData = new FormData();
         formData.append("frame", blob, "frame.jpg");
 
-        // ✅ Only send instruction once per task
+        // Send task only once at the start
         if (task && !instructionSent) {
           formData.append("instruction", task);
           setInstructionSent(true);
@@ -48,11 +56,42 @@ const WebcamFeed: React.FC = () => {
         });
 
         if (res.data) {
-          setOverlays(res.data.overlay || []);
-          if (res.data.stepIndex !== undefined)
-            setCurrentStep(res.data.stepIndex);
-          if (res.data.totalSteps !== undefined)
-            setTotalSteps(res.data.totalSteps);
+          const {
+            overlay,
+            stepIndex,
+            totalSteps: ts,
+            longInstruction: li,
+            status,
+          } = res.data;
+
+          // ⚠️ Handle "no objects": keep streaming, just show warning
+          if (status === "no objects") {
+            setOverlays([]);
+            setLongInstruction("⚠️ No buttons detected. Please adjust the camera.");
+            setTaskComplete(false);
+            return;
+          }
+
+          // Normal update path
+          setOverlays(Array.isArray(overlay) ? overlay : []);
+
+          if (isNum(stepIndex)) setCurrentStep(stepIndex);
+          if (isNum(ts)) setTotalSteps(ts);
+          if (typeof li === "string") setLongInstruction(li);
+
+          // Completed explicitly by backend
+          if (status === "done") {
+            setStreaming(false);
+            setTaskComplete(true);
+            return;
+          }
+
+          // Completed implicitly by indices (guard against ts = 0)
+          if (isNum(stepIndex) && isNum(ts) && ts > 0 && stepIndex >= ts) {
+            setStreaming(false);
+            setTaskComplete(true);
+            return;
+          }
         }
       } catch (err) {
         console.error("Streaming error:", err);
@@ -65,31 +104,56 @@ const WebcamFeed: React.FC = () => {
   // Done → advance step
   const handleDone = async () => {
     try {
-      const res = await axios.post(`${BACKEND_URL}/api/step_complete`, {
-        currentStep,
-      });
+      const res = await axios.post(`${BACKEND_URL}/api/step_complete`);
       if (res.data) {
-        setOverlays(res.data.overlay || []);
-        if (res.data.stepIndex !== undefined)
-          setCurrentStep(res.data.stepIndex);
-        if (res.data.totalSteps !== undefined)
-          setTotalSteps(res.data.totalSteps);
+        const {
+          overlay,
+          stepIndex,
+          totalSteps: ts,
+          longInstruction: li,
+          status,
+        } = res.data;
 
-        setInstructionSent(false);
+        if (status === "no objects") {
+          setOverlays([]);
+          setLongInstruction("⚠️ No buttons detected. Please adjust the camera.");
+          setTaskComplete(false);
+          // keep streaming → don't return
+        } else {
+          setOverlays(Array.isArray(overlay) ? overlay : []);
+
+          if (isNum(stepIndex)) setCurrentStep(stepIndex);
+          if (isNum(ts)) setTotalSteps(ts);
+          if (typeof li === "string") setLongInstruction(li);
+
+          if (status === "done") {
+            setStreaming(false);
+            setTaskComplete(true);
+            return;
+          }
+
+          if (isNum(stepIndex) && isNum(ts) && ts > 0 && stepIndex >= ts) {
+            setStreaming(false);
+            setTaskComplete(true);
+            return;
+          }
+        }
       }
     } catch (err) {
       console.error("Error marking step complete:", err);
     }
   };
 
-  // Stop task → cleanup
+  // Stop task manually
   const handleStopTask = () => {
     setStreaming(false);
     setOverlays([]);
     setCurrentStep(0);
     setTotalSteps(0);
-    setTask("");
     setInstructionSent(false);
+    setLongInstruction("");
+    setTaskComplete(false);
+    onStop();
   };
 
   return (
@@ -103,29 +167,40 @@ const WebcamFeed: React.FC = () => {
           screenshotFormat="image/jpeg"
         />
 
-        {/* overlays drawn on top of webcam */}
+        {/* overlays */}
         <div style={{ position: "absolute", inset: 0 }}>
-        <WebcamOverlay
-    overlays={overlays.map((ov) => {
-      const videoEl = webcamRef.current?.video as HTMLVideoElement | undefined;
-      const videoWidth = videoEl?.videoWidth || 640;
-      const videoHeight = videoEl?.videoHeight || 640;
+          <WebcamOverlay
+            overlays={overlays.map((ov) => {
+              const videoEl = webcamRef.current?.video as
+                | HTMLVideoElement
+                | undefined;
+              const videoWidth = videoEl?.videoWidth || 640;
+              const videoHeight = videoEl?.videoHeight || 640;
 
-      const scaleX = videoWidth / 640;
-      const scaleY = videoHeight / 640;
+              const scaleX = videoWidth / 640;
+              const scaleY = videoHeight / 640;
 
-      const [x1, y1, x2, y2] = ov.bbox;
+              if (!ov.bbox) {
+                return {
+                  x: 0,
+                  y: videoHeight - 50,
+                  width: videoWidth,
+                  height: 40,
+                  instruction: ov.instruction || ov.label || "",
+                };
+              }
 
-      return {
-        x: x1 * scaleX,
-        y: y1 * scaleY,
-        width: (x2 - x1) * scaleX,
-        height: (y2 - y1) * scaleY,
-        instruction: ov.instruction || ov.label || "",
-      };
-    })}
-  />
-</div>
+              const [x1, y1, x2, y2] = ov.bbox;
+              return {
+                x: x1 * scaleX,
+                y: y1 * scaleY,
+                width: (x2 - x1) * scaleX,
+                height: (y2 - y1) * scaleY,
+                instruction: ov.instruction || ov.label || "",
+              };
+            })}
+          />
+        </div>
       </div>
 
       <div className="ti__component-controls">
@@ -133,7 +208,8 @@ const WebcamFeed: React.FC = () => {
           Stop Task
         </button>
 
-        {currentStep < totalSteps && (
+        {/* Done only if steps remain and not complete */}
+        {!taskComplete && currentStep < totalSteps && (
           <button
             className="glow-button"
             onClick={handleDone}
@@ -141,6 +217,36 @@ const WebcamFeed: React.FC = () => {
           >
             Done
           </button>
+        )}
+
+        {/* Long instruction text (warning in orange if starts with ⚠️) */}
+        {longInstruction && !taskComplete && (
+          <p
+            style={{
+              marginTop: "1rem",
+              fontSize: "1rem",
+              color: longInstruction.startsWith("⚠️") ? "orange" : "white",
+              textAlign: "center",
+              maxWidth: "400px",
+            }}
+          >
+            {longInstruction}
+          </p>
+        )}
+
+        {/* Final message */}
+        {taskComplete && (
+          <p
+            style={{
+              marginTop: "1rem",
+              fontSize: "1.2rem",
+              fontWeight: "bold",
+              color: "#00ff88",
+              textAlign: "center",
+            }}
+          >
+            ✅ Task complete!
+          </p>
         )}
       </div>
     </div>
