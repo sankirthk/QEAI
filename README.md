@@ -6,6 +6,12 @@ A mobile frontend streams camera frames via **WebSockets**, receives instruction
 
 ---
 
+## Contributors
+
+1. Sankirth Kalahasti (sk11617@nyu.edu)
+2. Milind Kaushal (mk9694@nyu.edu)
+3. Niranjana (nn2772@nyu.edu)
+
 ## Table of Contents
 
 1. Purpose  
@@ -15,8 +21,7 @@ A mobile frontend streams camera frames via **WebSockets**, receives instruction
 5. Troubleshooting  
 6. Known Limitations & Fallback  
 7. Contributing  
-8. Code of Conduct  
-
+ 
 ---
 
 ## 1. Purpose
@@ -181,14 +186,7 @@ Please open a PR to extend functionality (e.g., new workflows, better overlays, 
 
 ---
 
-## 8. Code of Conduct
-
-This project follows the [Contributor Covenant](https://www.contributor-covenant.org/).  
-Be respectful, inclusive, and collaborative.
-
----
-
 ## 📜 License
 
-MIT (or update with your license)
+MIT
 
