@@ -7,7 +7,7 @@ import InstantPotHUD from "./InstantPotHUD";
 
 const STREAM_INTERVAL_MS = 1000; // ~1 fps
 const videoConstraints = { facingMode: "environment" };
-const BACKEND_URL = "https://192.168.137.1:8000";
+const BACKEND_URL = "http://localhost:8000";
 
 interface OverlayData {
   bbox?: [number, number, number, number];

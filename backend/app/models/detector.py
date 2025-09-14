@@ -3,29 +3,13 @@ import numpy as np
 import onnxruntime as ort
 
 class Detector:
-    def __init__(self, weights="app/ml/best.onnx", imgsz=640, conf_thres=0.25, use_qnn=True):
+    def __init__(self, weights="app/ml/best.onnx", imgsz=640, conf_thres=0.25):
         self.imgsz = imgsz
         self.conf_thres = conf_thres
 
-        if use_qnn:
-            try:
-                execution_provider_option = {
-                    "backend_path": "QnnHtp.dll",
-                    "enable_htp_fp16_precision": "1",
-                    "htp_performance_mode": "high_performance"
-                }
-                self.session = ort.InferenceSession(
-                    weights,
-                    providers=[("QNNExecutionProvider", execution_provider_option),
-                               "CPUExecutionProvider"]
-                )
-                print("[Detector] Using QNNExecutionProvider with CPU fallback")
-            except Exception as e:
-                print(f"[Detector] QNN init failed: {e}, falling back to CPU")
-                self.session = ort.InferenceSession(weights, providers=["CPUExecutionProvider"])
-        else:
-            self.session = ort.InferenceSession(weights, providers=["CPUExecutionProvider"])
-            print("[Detector] Using CPUExecutionProvider")
+        # Always use CPU provider
+        self.session = ort.InferenceSession(weights, providers=["CPUExecutionProvider"])
+        print("[Detector] Using CPUExecutionProvider")
 
         self.input_name = self.session.get_inputs()[0].name
         self.output_name = self.session.get_outputs()[0].name
