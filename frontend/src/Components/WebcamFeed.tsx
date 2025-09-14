@@ -3,8 +3,9 @@ import Webcam from "react-webcam";
 import axios from "axios";
 import WebcamOverlay from "./WebcamOverlay";
 import "../Styles/TaskInput.css";
+import InstantPotHUD from "./InstantPotHUD"; //
 
-const STREAM_INTERVAL_MS = 1000; // ~2 fps
+const STREAM_INTERVAL_MS = 1000; // ~1 fps
 const videoConstraints = { facingMode: "environment" };
 const BACKEND_URL = "https://192.168.137.1:8000";
 
@@ -20,7 +21,8 @@ interface WebcamFeedProps {
   onStop: () => void;
 }
 
-const isNum = (v: any): v is number => typeof v === "number" && !Number.isNaN(v);
+const isNum = (v: any): v is number =>
+  typeof v === "number" && !Number.isNaN(v);
 
 const WebcamFeed: React.FC<WebcamFeedProps> = ({ task, onStop }) => {
   const [streaming, setStreaming] = useState(true);
@@ -30,6 +32,7 @@ const WebcamFeed: React.FC<WebcamFeedProps> = ({ task, onStop }) => {
   const [totalSteps, setTotalSteps] = useState(0);
   const [longInstruction, setLongInstruction] = useState(""); // wordier text
   const [taskComplete, setTaskComplete] = useState(false);
+  const [hasBBox, setHasBBox] = useState(false); //
   const webcamRef = useRef<Webcam>(null);
 
   // Continuous streaming loop
@@ -64,10 +67,12 @@ const WebcamFeed: React.FC<WebcamFeedProps> = ({ task, onStop }) => {
             status,
           } = res.data;
 
-          // ⚠️ Handle "no objects": keep streaming, just show warning
           if (status === "no objects") {
             setOverlays([]);
-            setLongInstruction("⚠️ No buttons detected. Please adjust the camera.");
+            setHasBBox(false); // nothing detected
+            setLongInstruction(
+              "⚠️ No buttons detected. Please adjust the camera."
+            );
             setTaskComplete(false);
             return;
           }
@@ -75,18 +80,20 @@ const WebcamFeed: React.FC<WebcamFeedProps> = ({ task, onStop }) => {
           // Normal update path
           setOverlays(Array.isArray(overlay) ? overlay : []);
 
+          if (Array.isArray(overlay) && overlay.length > 0) {
+            setHasBBox(true); // ✅ Lock HUD once we have bbox
+          }
+
           if (isNum(stepIndex)) setCurrentStep(stepIndex);
           if (isNum(ts)) setTotalSteps(ts);
           if (typeof li === "string") setLongInstruction(li);
 
-          // Completed explicitly by backend
           if (status === "done") {
             setStreaming(false);
             setTaskComplete(true);
             return;
           }
 
-          // Completed implicitly by indices (guard against ts = 0)
           if (isNum(stepIndex) && isNum(ts) && ts > 0 && stepIndex >= ts) {
             setStreaming(false);
             setTaskComplete(true);
@@ -116,11 +123,17 @@ const WebcamFeed: React.FC<WebcamFeedProps> = ({ task, onStop }) => {
 
         if (status === "no objects") {
           setOverlays([]);
-          setLongInstruction("⚠️ No buttons detected. Please adjust the camera.");
+          setHasBBox(false);
+          setLongInstruction(
+            "⚠️ No buttons detected. Please adjust the camera."
+          );
           setTaskComplete(false);
-          // keep streaming → don't return
         } else {
           setOverlays(Array.isArray(overlay) ? overlay : []);
+
+          if (Array.isArray(overlay) && overlay.length > 0) {
+            setHasBBox(true);
+          }
 
           if (isNum(stepIndex)) setCurrentStep(stepIndex);
           if (isNum(ts)) setTotalSteps(ts);
@@ -153,6 +166,7 @@ const WebcamFeed: React.FC<WebcamFeedProps> = ({ task, onStop }) => {
     setInstructionSent(false);
     setLongInstruction("");
     setTaskComplete(false);
+    setHasBBox(false); // reset HUD
     onStop();
   };
 
@@ -200,6 +214,9 @@ const WebcamFeed: React.FC<WebcamFeedProps> = ({ task, onStop }) => {
               };
             })}
           />
+
+          {/* 🚀 HUD */}
+          <InstantPotHUD locked={hasBBox} />
         </div>
       </div>
 
@@ -208,7 +225,6 @@ const WebcamFeed: React.FC<WebcamFeedProps> = ({ task, onStop }) => {
           Stop Task
         </button>
 
-        {/* Done only if steps remain and not complete */}
         {!taskComplete && currentStep < totalSteps && (
           <button
             className="glow-button"
@@ -219,7 +235,6 @@ const WebcamFeed: React.FC<WebcamFeedProps> = ({ task, onStop }) => {
           </button>
         )}
 
-        {/* Long instruction text (warning in orange if starts with ⚠️) */}
         {longInstruction && !taskComplete && (
           <p
             style={{
@@ -234,7 +249,6 @@ const WebcamFeed: React.FC<WebcamFeedProps> = ({ task, onStop }) => {
           </p>
         )}
 
-        {/* Final message */}
         {taskComplete && (
           <p
             style={{
@@ -245,7 +259,7 @@ const WebcamFeed: React.FC<WebcamFeedProps> = ({ task, onStop }) => {
               textAlign: "center",
             }}
           >
-            ✅ Task complete!
+            Task complete!
           </p>
         )}
       </div>
