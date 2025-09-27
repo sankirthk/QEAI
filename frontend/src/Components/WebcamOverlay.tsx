@@ -2,15 +2,15 @@ import React from "react";
 import "../Styles/WebcamOverlay.css";
 
 interface OverlayData {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  instruction: string;
+  bbox?: [number, number, number, number]; // already in original frame coords
+  label?: string;
+  instruction?: string;
 }
 
 interface OverlayProps {
   overlays: OverlayData[];
+  videoWidth: number;
+  videoHeight: number;
 }
 
 const WebcamOverlay: React.FC<OverlayProps> = ({ overlays }) => {
@@ -18,21 +18,27 @@ const WebcamOverlay: React.FC<OverlayProps> = ({ overlays }) => {
 
   return (
     <>
-      {overlays.map((overlay, i) => {
-        const colorClass = `neon-box color-${i % 4}`;
+      {overlays.map((ov, i) => {
+        if (!ov.bbox) return null;
+
+        const [x1, y1, x2, y2] = ov.bbox;
+        const width = x2 - x1;
+        const height = y2 - y1;
+
         return (
           <div
             key={i}
-            className={colorClass}
+            className={`neon-box color-${i % 4}`}
             style={{
-              top: overlay.y,
-              left: overlay.x,
-              width: overlay.width,
-              height: overlay.height,
+              position: "absolute",
+              top: y1,
+              left: x1,
+              width,
+              height,
             }}
           >
             <p className={`neon-label color-${i % 4}`}>
-              {overlay.instruction}
+              {ov.instruction || ov.label || ""}
             </p>
           </div>
         );

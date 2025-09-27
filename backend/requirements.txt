@@ -3,3 +3,4 @@ uvicorn[standard]
 opencv-python
 onnxruntime          # CPU runtime instead of onnxruntime-qnn
 Pillow
+openai

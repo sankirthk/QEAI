@@ -7,7 +7,7 @@ import InstantPotHUD from "./InstantPotHUD";
 
 const STREAM_INTERVAL_MS = 1000; // ~1 fps
 const videoConstraints = { facingMode: "environment" };
-const BACKEND_URL = "http://localhost:8000";
+const BACKEND_URL = "https://192.168.2.1:8000";
 
 interface OverlayData {
   bbox?: [number, number, number, number];
@@ -29,7 +29,7 @@ const WebcamFeed: React.FC<WebcamFeedProps> = ({ task, onStop }) => {
   const [overlays, setOverlays] = useState<OverlayData[]>([]);
   const [currentStep, setCurrentStep] = useState(0);
   const [totalSteps, setTotalSteps] = useState(0);
-  const [longInstruction, setLongInstruction] = useState(""); // wordier text
+  const [longInstruction, setLongInstruction] = useState("");
   const [taskComplete, setTaskComplete] = useState(false);
   const [hasBBox, setHasBBox] = useState(false);
   const webcamRef = useRef<Webcam>(null);
@@ -47,7 +47,7 @@ const WebcamFeed: React.FC<WebcamFeedProps> = ({ task, onStop }) => {
     ws.onopen = () => {
       console.log("WS connected");
       ws.send(JSON.stringify({ type: "instruction", task }));
-      // Start streaming loop once connected
+
       intervalRef.current = setInterval(async () => {
         if (!webcamRef.current || ws.readyState !== WebSocket.OPEN) return;
         const imageSrc = webcamRef.current.getScreenshot();
@@ -60,13 +60,7 @@ const WebcamFeed: React.FC<WebcamFeedProps> = ({ task, onStop }) => {
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        const {
-          overlay,
-          stepIndex,
-          totalSteps: ts,
-          longInstruction: li,
-          status,
-        } = data;
+        const { overlay, stepIndex, totalSteps: ts, longInstruction: li, status } = data;
 
         if (status === "no objects") {
           setOverlays([]);
@@ -78,7 +72,7 @@ const WebcamFeed: React.FC<WebcamFeedProps> = ({ task, onStop }) => {
 
         if (Array.isArray(overlay)) {
           setOverlays(overlay);
-          if (overlay.length > 0) setHasBBox(true);
+          setHasBBox(overlay.length > 0);
         }
 
         if (isNum(stepIndex)) setCurrentStep(stepIndex);
@@ -110,13 +104,7 @@ const WebcamFeed: React.FC<WebcamFeedProps> = ({ task, onStop }) => {
     try {
       const res = await axios.post(`${BACKEND_URL}/api/step_complete`);
       if (res.data) {
-        const {
-          overlay,
-          stepIndex,
-          totalSteps: ts,
-          longInstruction: li,
-          status,
-        } = res.data;
+        const { overlay, stepIndex, totalSteps: ts, longInstruction: li, status } = res.data;
 
         if (status === "no objects") {
           setOverlays([]);
@@ -126,7 +114,7 @@ const WebcamFeed: React.FC<WebcamFeedProps> = ({ task, onStop }) => {
         } else {
           if (Array.isArray(overlay)) {
             setOverlays(overlay);
-            if (overlay.length > 0) setHasBBox(true);
+            setHasBBox(overlay.length > 0);
           }
           if (isNum(stepIndex)) setCurrentStep(stepIndex);
           if (isNum(ts)) setTotalSteps(ts);
@@ -157,6 +145,11 @@ const WebcamFeed: React.FC<WebcamFeedProps> = ({ task, onStop }) => {
     onStop();
   };
 
+  // video dimensions for overlay rescale
+  const videoEl = webcamRef.current?.video as HTMLVideoElement | undefined;
+  const videoWidth = videoEl?.videoWidth || 640;
+  const videoHeight = videoEl?.videoHeight || 640;
+
   return (
     <div className="ti__component-container">
       <div style={{ position: "relative" }}>
@@ -168,38 +161,11 @@ const WebcamFeed: React.FC<WebcamFeedProps> = ({ task, onStop }) => {
           screenshotFormat="image/jpeg"
         />
 
-        {/* overlays */}
         <div style={{ position: "absolute", inset: 0 }}>
           <WebcamOverlay
-            overlays={overlays.map((ov) => {
-              const videoEl = webcamRef.current?.video as
-                | HTMLVideoElement
-                | undefined;
-              const videoWidth = videoEl?.videoWidth || 640;
-              const videoHeight = videoEl?.videoHeight || 640;
-
-              const scaleX = videoWidth / 640;
-              const scaleY = videoHeight / 640;
-
-              if (!ov.bbox) {
-                return {
-                  x: 0,
-                  y: videoHeight - 50,
-                  width: videoWidth,
-                  height: 40,
-                  instruction: ov.instruction || ov.label || "",
-                };
-              }
-
-              const [x1, y1, x2, y2] = ov.bbox;
-              return {
-                x: x1 * scaleX,
-                y: y1 * scaleY,
-                width: (x2 - x1) * scaleX,
-                height: (y2 - y1) * scaleY,
-                instruction: ov.instruction || ov.label || "",
-              };
-            })}
+            overlays={overlays}
+            videoWidth={videoWidth}
+            videoHeight={videoHeight}
           />
           <InstantPotHUD locked={hasBBox} />
         </div>

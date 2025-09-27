@@ -6,11 +6,6 @@ A mobile frontend streams camera frames via **WebSockets**, receives instruction
 
 ---
 
-## Contributors
-
-1. Sankirth Kalahasti (sk11617@nyu.edu)
-2. Milind Kaushal (mk9694@nyu.edu)
-3. Niranjana (nn2772@nyu.edu)
 
 ## Table of Contents
 
